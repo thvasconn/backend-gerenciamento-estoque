@@ -68,16 +68,34 @@ module.exports = StockMovement;
 // Rota para buscar todos os produtos
 app.get('/products', async (req, res) => {
   try {
-    const { search } = req.query;
+    const { search, category } = req.query;
     let query = {};
-    if (search) {
+    if (search && category) {
+      query = {
+        $and: [
+          {
+            $or: [
+              { name: { $regex: search, $options: 'i' } },
+              { code: { $regex: search, $options: 'i' } }
+            ]
+          },
+          { category: category }
+        ]
+      };
+    } else if (search) {
       query = {
         $or: [
           { name: { $regex: search, $options: 'i' } },
           { code: { $regex: search, $options: 'i' } }
         ]
       };
+    } else if (category) {
+      query = {
+        category: category
+      };
     }
+
+    
     const products = await Product.find(query).sort({ createdAt: -1 });
     res.json(products);
   } catch (error) {
@@ -90,7 +108,7 @@ app.get('/products', async (req, res) => {
 });
 
 
-// Rota para buscar os últimos 5 movimentos
+// Rota para buscar os movimentos
 app.get('/movements', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -104,8 +122,7 @@ app.get('/movements', async (req, res) => {
     }
 
     const movements = await StockMovement.find(query)
-      .sort({ date: -1 })
-      .limit(5);
+      .sort({ date: -1 });
 
     res.json(movements);
   } catch (error) {
@@ -159,7 +176,9 @@ app.post('/products', async (req, res) => {
     const productData = req.body;
     const existingProduct = await Product.findOne({ name: productData.name });
     if (existingProduct) {
-      return res.status(400).json({ error: 'Nome de produto já existe' });
+      existingProduct.quantity += parseInt(productData.quantity);
+      await existingProduct.save();
+      return res.status(200).json(existingProduct);
     }
 
     // Validação dos campos obrigatórios
