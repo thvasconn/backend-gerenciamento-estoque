@@ -43,7 +43,7 @@ const stockMovementSchema = new Schema({
   type: {
     type: String,
     required: true,
-    enum: ['entrada', 'saída'] 
+    enum: ['entrada', 'saída']
   },
   quantity: {
     type: Number,
@@ -64,13 +64,23 @@ const StockMovement = mongoose.model('StockMovement', stockMovementSchema);
 
 module.exports = StockMovement;
 
+function getQuantityFilter(quantity) {
+  if (quantity === 'low') {
+    return { quantity: { $gt: 0, $lte: 50 } };
+  } else if (quantity === 'medium') {
+    return { quantity: { $gt: 50, $lte: 100 } };
+  } else if (quantity === 'high') {
+    return { quantity: { $gt: 100 } };
+  }
+  return {};
+}
 
 // Rota para buscar todos os produtos
 app.get('/products', async (req, res) => {
   try {
-    const { search, category } = req.query;
+    const { search, category, quantity } = req.query;
     let query = {};
-    if (search && category) {
+    if (search && category && quantity) {
       query = {
         $and: [
           {
@@ -79,23 +89,62 @@ app.get('/products', async (req, res) => {
               { code: { $regex: search, $options: 'i' } }
             ]
           },
-          { category: category }
+          { category: category },
+          getQuantityFilter(quantity)
+        ]
+      };
+    } else if (search && category) {
+      query = {
+        $and: [
+          {
+            $or: [
+              { name: { $regex: search, $options: 'i' } },
+              { code: { $regex: search, $options: 'i' } }
+            ]
+          },
+          { category: category },
+        ]
+      };
+    } else if (search && quantity) {
+      query = {
+        $and: [
+          {
+            $or: [
+              { name: { $regex: search, $options: 'i' } },
+              { code: { $regex: search, $options: 'i' } }
+            ]
+          },
+          getQuantityFilter(quantity)
+        ]
+      };
+    } else if (category && quantity) {
+      query = {
+        $and: [
+          { category: category },
+          getQuantityFilter(quantity)
         ]
       };
     } else if (search) {
       query = {
-        $or: [
-          { name: { $regex: search, $options: 'i' } },
-          { code: { $regex: search, $options: 'i' } }
+        $and: [
+          {
+            $or: [
+              { name: { $regex: search, $options: 'i' } },
+              { code: { $regex: search, $options: 'i' } }
+            ]
+          },
         ]
       };
     } else if (category) {
       query = {
         category: category
       };
+    } else if (quantity) {
+      query = getQuantityFilter(quantity);
+    } else {
+      query = {};
     }
 
-    
     const products = await Product.find(query).sort({ createdAt: -1 });
     res.json(products);
   } catch (error) {
