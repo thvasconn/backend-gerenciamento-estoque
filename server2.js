@@ -16,6 +16,7 @@ mongoose.connect(MONGODB_URI)
   .then(() => console.log('Conectado ao MongoDB com sucesso!'))
   .catch(err => console.error('Erro ao conectar ao MongoDB:', err));
 
+const Schema = mongoose.Schema;
 // Definir o schema do produto
 const productSchema = new mongoose.Schema({
   code: { type: String, required: true, unique: true },
@@ -25,7 +26,7 @@ const productSchema = new mongoose.Schema({
   minStock: { type: Number, default: 0 },
   costPrice: { type: String, required: true },
   expirationDate: { type: String },
-}, { 
+}, {
   timestamps: true, // Adiciona createdAt e updatedAt
   versionKey: false // Remove o campo __v
 });
@@ -33,10 +34,51 @@ const productSchema = new mongoose.Schema({
 // Criar o modelo
 const Product = mongoose.model('Product', productSchema);
 
+const stockMovementSchema = new Schema({
+  productId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true
+  },
+  type: {
+    type: String,
+    required: true,
+    enum: ['entrada', 'saída'] 
+  },
+  quantity: {
+    type: Number,
+    required: true
+  },
+  date: {
+    type: Date,
+    default: Date.now
+  }
+}, { timestamps: true }); // Adiciona createdAt e updatedAt automaticamente
+
+// Índices para melhorar a performance de consultas
+stockMovementSchema.index({ productId: 1 });
+stockMovementSchema.index({ date: -1 });
+stockMovementSchema.index({ type: 1 });
+
+const StockMovement = mongoose.model('StockMovement', stockMovementSchema);
+
+module.exports = StockMovement;
+
+
 // Rota para buscar todos os produtos
 app.get('/products', async (req, res) => {
   try {
-    const products = await Product.find();
+    const { search } = req.query;
+    let query = {};
+    if (search) {
+      query = {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { code: { $regex: search, $options: 'i' } }
+        ]
+      };
+    }
+    const products = await Product.find(query).sort({ createdAt: -1 });
     res.json(products);
   } catch (error) {
     console.error('Erro ao buscar produtos', error);
@@ -47,11 +89,54 @@ app.get('/products', async (req, res) => {
   }
 });
 
+
+// Rota para buscar os últimos 5 movimentos
+app.get('/movements', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    const query = {};
+    if (startDate) {
+      query.date = { $gte: new Date(startDate) };
+    }
+    if (endDate) {
+      query.date = { $lte: new Date(endDate) };
+    }
+
+    const movements = await StockMovement.find(query)
+      .sort({ date: -1 })
+      .limit(5);
+
+    res.json(movements);
+  } catch (error) {
+    console.error('Erro ao buscar movimentos', error);
+    res.status(500).json({
+      message: 'Erro ao buscar movimentos',
+      error: error.message
+    });
+  }
+});
+
+app.post('/movements', async (req, res) => {
+  try {
+    const movementData = req.body;
+    const newMovement = new StockMovement(movementData);
+    await newMovement.save();
+    res.status(201).json(newMovement);
+  } catch (error) {
+    console.error('Erro ao criar movimento', error);
+    res.status(500).json({
+      message: 'Erro ao criar movimento',
+      error: error.message
+    });
+  }
+});
+
 // Rota para buscar um produto específico
 app.get('/products/:id', async (req, res) => {
   try {
     const productId = req.params.id;
-    
+
     const product = await Product.findById(productId);
 
     if (!product) {
@@ -149,7 +234,7 @@ app.put('/products/:id', async (req, res) => {
 
 // Rota para deletar um produto
 app.delete('/products/:id', async (req, res) => {
-  try {           
+  try {
     const productId = req.params.id;
 
     // Verificar se o produto existe
@@ -162,7 +247,7 @@ app.delete('/products/:id', async (req, res) => {
     // Deletar o produto
     await Product.findByIdAndDelete(productId);
 
-    res.json({ 
+    res.json({
       message: 'Produto deletado com sucesso',
       product: existingProduct
     });
@@ -174,6 +259,11 @@ app.delete('/products/:id', async (req, res) => {
     });
   }
 });
+
+
+
+
+
 
 // Iniciar o servidor
 app.listen(PORT, () => {
